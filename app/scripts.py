@@ -5,12 +5,15 @@ import re
 
 import requests
 from bs4 import BeautifulSoup
+from database import lamoda_db
+from schema import GoodModel
+from transliterate import translit
 
 URL = 'https://lamoda.by'
 session = requests.Session()
 
 
-class CatalogGood:
+class CatalogGood:  # pylint: disable=too-few-public-methods
     """Instanciate a Catalog Good class representing a good from lamoda catalog
     with it's attributes, price, title and brand set"""
     def __init__(self, nuxt_var: str | None):
@@ -27,10 +30,17 @@ class CatalogGood:
             self.title = json_data['product']['title']
 
     @classmethod
-    def goods_runner(cls, nuxt_var_list: list) -> list:
+    def goods_runner(cls, links: list[str], collection: str):
         """Takes list of goods links, search for data for each good
         passed, returns lis of CatalogGood instances"""
-        return [CatalogGood(nuxt_var) for nuxt_var in nuxt_var_list]  # Will be reworked
+        for link in links:
+            nuxt_var = DataCollectingTools.nuxt_finder(link)
+            good = CatalogGood(nuxt_var)
+            good_data = GoodModel.good_data_creator(good.title,
+                                                    good.brand,
+                                                    good.attributes,
+                                                    good.price)
+            lamoda_db[f'{collection}'].insert_one(good_data)
 
 
 class DataCollectingTools:
@@ -94,11 +104,10 @@ class DataCollectingTools:
         return subcategory_links
 
     @classmethod
-    def page_runner(cls, link: str) -> list[str]:
+    def page_runner(cls, link: str, collection: str):
         """Takes in category link and runs through all category pages collecting
-        goods links, returns collected goods links"""
+        goods links and passing them to CatalogGood goods runner function"""
         page_num = 1
-        goods_links: list = []
         remembered_good = None
         for _ in range(167):
             gotten_goods = \
@@ -108,20 +117,21 @@ class DataCollectingTools:
             if gotten_goods and remembered_good and \
                     gotten_goods[-1] == remembered_good:
                 break
-            CatalogGood.goods_runner([cls.nuxt_finder(link)
-                                      for link in gotten_goods])  # Will be reworked
+            CatalogGood.goods_runner(list(gotten_goods),
+                                     collection)
             page_num += 1
             remembered_good = gotten_goods[-1]
-        return goods_links  # Will be reworked
 
 
 class HomeCategoriesCollector:
-    """Instanciate a HomeCategoriesCollector class with set category map attribute, containing
-    actual lamoda home categories and their links"""
+    """Instanciate a HomeCategoriesCollector class with set category map attribute,
+    containing actual lamoda home categories and their links"""
     def __init__(self):
         """Creates a current actual category map and assign it to category_map
         class attribute"""
         self.category_map = self.get_categories_map()
+        # for category in self.category_map:
+        #     lamoda_db.categories.insert_one(category)
 
     @staticmethod
     def get_category_types() -> dict[str, str]:
@@ -197,23 +207,34 @@ class CategoryDataScraper:
     def __init__(self, category_type: str, category_name: str):
         """Collects actual category map data, gets category link and
         calls suitable data scraper method for requested category"""
-        category_map = HomeCategoriesCollector().category_map
-        self.link = category_map[category_type][category_name]
-        category_methods_map: dict = {"Блог": self.blog_data_scraper,
-                                      "Бренды": self.brands_data_scraper,
-                                      "Новинки": self.new_goods_data_scraper}
-        if category_name in category_methods_map:
-            category_methods_map[category_name]()
-        else:
-            self.standard_data_scraper()
+        category = lamoda_db.categories.find_one(category_type)
+        self.collection_name = self.collection_name_generator(category_type,
+                                                              category_name)
+        if category:
+            self.link = category[category_name]
+            category_methods_map: dict = {"Блог": self.blog_data_scraper,
+                                          "Бренды": self.brands_data_scraper,
+                                          "Новинки": self.new_goods_data_scraper}
+            if category_name in category_methods_map:
+                category_methods_map[category_name]()
+            else:
+                self.standard_data_scraper()
 
     @staticmethod
-    def links_runner(links: list):
+    def links_runner(links: list, collection: str):
         """Runs through links passed in the links list and calls page_runner
         method from DataCollectingTools class to get data from all available
         pages"""
         for link in links:
-            DataCollectingTools.page_runner(link)
+            DataCollectingTools.page_runner(link, collection)
+
+    @staticmethod
+    def collection_name_generator(category_type: str, category_name: str):
+        """Generates translit name from given category type and category name
+        for mongo db collection"""
+        category_collection = f'{category_type}-{category_name}'
+        collection_name = translit(category_collection, "ru", reversed=True)
+        return collection_name
 
     @staticmethod
     def categories_collector(link: str) -> list:
@@ -230,18 +251,18 @@ class CategoryDataScraper:
         for category in categories:
             category_link = URL + category['href']
             links = DataCollectingTools.category_subcategories_getter(category_link)
-            self.links_runner(links)
+            self.links_runner(links, self.collection_name)
 
     def standard_data_scraper(self):
         """Collects all subcategory link lists (via category_subcategories_getter
         from DataCollectingTools class method) and calls a link_runner method for
         each subcategory links list"""
         links = DataCollectingTools.category_subcategories_getter(self.link)
-        self.links_runner(links)
+        self.links_runner(links, self.collection_name)
 
-    def blog_data_scraper(self):
+    def blog_data_scraper(self, collection: str):
         """Prints out a statement"""
-        print('Nothing to parse here')  # Will be reworked
+        return {f"{collection}": "Nothing to parse here"}
 
     def categories_data_scraper(self, link: str):
         """Gets categories by running categories_collector method on a given link and
