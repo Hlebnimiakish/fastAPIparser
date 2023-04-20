@@ -1,3 +1,5 @@
+# pylint: disable=import-error
+
 """This module contains scripts to parse lamoda goods data"""
 
 import json
@@ -5,12 +7,15 @@ import re
 
 import requests
 from bs4 import BeautifulSoup
-from database import lamoda_db
-from schema import GoodModel
 from transliterate import translit
+
+from app.database import CollectionHandler
+from app.schema import CategoryModel, GoodModel
+from app.settings import get_settings
 
 URL = 'https://lamoda.by'
 session = requests.Session()
+lamoda_db_name = get_settings().lamoda_db_name
 
 
 class CatalogGood:  # pylint: disable=too-few-public-methods
@@ -30,7 +35,7 @@ class CatalogGood:  # pylint: disable=too-few-public-methods
             self.title = json_data['product']['title']
 
     @classmethod
-    def goods_runner(cls, links: list[str], collection: str):
+    def goods_runner(cls, links: list[str], collection_name: str):
         """Takes list of goods links, search for data for each good
         passed, returns lis of CatalogGood instances"""
         for link in links:
@@ -40,7 +45,8 @@ class CatalogGood:  # pylint: disable=too-few-public-methods
                                                     good.brand,
                                                     good.attributes,
                                                     good.price)
-            lamoda_db[f'{collection}'].insert_one(good_data)
+            collection = CollectionHandler(lamoda_db_name, collection_name)
+            collection.add_one_doc(good_data)
 
 
 class DataCollectingTools:
@@ -130,8 +136,6 @@ class HomeCategoriesCollector:
         """Creates a current actual category map and assign it to category_map
         class attribute"""
         self.category_map = self.get_categories_map()
-        # for category in self.category_map:
-        #     lamoda_db.categories.insert_one(category)
 
     @staticmethod
     def get_category_types() -> dict[str, str]:
@@ -200,23 +204,32 @@ class HomeCategoriesCollector:
             category_map[key] = sub_categories
         return category_map
 
+    def put_categories_to_db(self):
+        """Adds collected categories to "categories" lamoda db collection"""
+        collection = CollectionHandler(lamoda_db_name, "categories")
+        for category_type, subcategories in self.category_map.items():
+            category = CategoryModel.category_data_creator(category_type,
+                                                           subcategories)
+            collection.add_one_doc(category)
+
 
 class CategoryDataScraper:
     """Instanciate a CategoryDataScraper class with scraping category link set and class
     link attribute and calls suitable data scraping method"""
-    def __init__(self, category_type: str, category_name: str):
+    def __init__(self, category_type: str, subcategory: str):
         """Collects actual category map data, gets category link and
         calls suitable data scraper method for requested category"""
-        category = lamoda_db.categories.find_one(category_type)
+        collection = CollectionHandler(lamoda_db_name, "categories")
+        category = collection.get_doc_by_key_value(category_type)
         self.collection_name = self.collection_name_generator(category_type,
-                                                              category_name)
+                                                              subcategory)
         if category:
-            self.link = category[category_name]
+            self.link = category[category_type][subcategory]
             category_methods_map: dict = {"Блог": self.blog_data_scraper,
                                           "Бренды": self.brands_data_scraper,
                                           "Новинки": self.new_goods_data_scraper}
-            if category_name in category_methods_map:
-                category_methods_map[category_name]()
+            if subcategory in category_methods_map:
+                category_methods_map[subcategory]()
             else:
                 self.standard_data_scraper()
 

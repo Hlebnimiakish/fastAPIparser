@@ -36,31 +36,28 @@ class BaseObjectIdConfig(BaseModel):
 
 class CategoryModel(BaseObjectIdConfig):
     id: ObjectId = Field(default_factory=PyObjectId, alias='_id')
-    category_type: str = Field(...)
-    category_name: str = Field(...)
-    category_urls: Union[str, list] = Field(...)
+    category_type: str
+    subcategories: dict[str, Union[str, list]]
     creation_time: datetime.datetime = Field(default=datetime.datetime.now())
 
     @classmethod
     def category_data_creator(cls,
                               category_type,
-                              category_name,
-                              category_urls):
+                              subcategories):
         """Creates Category model instance and returns it's vars
         data for mongo db document insert"""
         category = CategoryModel()
         category.category_type = category_type
-        category.category_name = category_name
-        category.category_urls = category_urls
+        category.subcategories = subcategories
         return vars(category)
 
 
 class GoodModel(BaseObjectIdConfig):
     id: ObjectId = Field(default_factory=PyObjectId, alias='_id')
-    good_title: str = Field(...)
-    good_brand: str = Field(...)
-    good_attributes: list[dict] = Field(...)
-    good_price: float = Field(...)
+    good_title: str
+    good_brand: str
+    good_attributes: list[dict]
+    good_price: float
     creation_time: datetime.datetime = Field(default=datetime.datetime.now())
 
     @classmethod
