@@ -46,7 +46,7 @@ class CatalogGood:  # pylint: disable=too-few-public-methods
                                                     good.attributes,
                                                     good.price)
             collection = CollectionHandler(lamoda_db_name, collection_name)
-            collection.add_one_doc(good_data)
+            collection.insert_one(good_data)
 
 
 class DataCollectingTools:
@@ -55,7 +55,7 @@ class DataCollectingTools:
     def soup_maker(link: str) -> BeautifulSoup:
         """Takes in a URL (link) and returns parsed BeautifulSoup instance
         of passed in page URL"""
-        page = session.get(link, timeout=30)
+        page = session.get(link, timeout=300)
         parsed_page = BeautifulSoup(page.content, 'lxml')
         return parsed_page
 
@@ -185,7 +185,7 @@ class HomeCategoriesCollector:
         category_map = {}
         for key, value in type_links.items():
             sub_categories = {}
-            page = session.get(value, timeout=30)
+            page = session.get(value, timeout=300)
             parsed_page = BeautifulSoup(page.content, 'lxml')
             search_class = "d-header-topmenu-category__link"
             sub_cats_list = parsed_page.body.find_all("a", {"class": search_class})
@@ -210,7 +210,7 @@ class HomeCategoriesCollector:
         for category_type, subcategories in self.category_map.items():
             category = CategoryModel.category_data_creator(category_type,
                                                            subcategories)
-            collection.add_one_doc(category)
+            collection.insert_one(category)
 
 
 class CategoryDataScraper:
@@ -220,7 +220,7 @@ class CategoryDataScraper:
         """Collects actual category map data, gets category link and
         calls suitable data scraper method for requested category"""
         collection = CollectionHandler(lamoda_db_name, "categories")
-        category = collection.get_doc_by_key_value(category_type)
+        category = collection.find_one_by_key(category_type)
         self.collection_name = self.collection_name_generator(category_type,
                                                               subcategory)
         if category:
@@ -273,9 +273,9 @@ class CategoryDataScraper:
         links = DataCollectingTools.category_subcategories_getter(self.link)
         self.links_runner(links, self.collection_name)
 
-    def blog_data_scraper(self, collection: str):
+    def blog_data_scraper(self):
         """Prints out a statement"""
-        return {f"{collection}": "Nothing to parse here"}
+        return {"Blog": "Nothing to parse here"}
 
     def categories_data_scraper(self, link: str):
         """Gets categories by running categories_collector method on a given link and

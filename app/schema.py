@@ -46,9 +46,8 @@ class CategoryModel(BaseObjectIdConfig):
                               subcategories):
         """Creates Category model instance and returns it's vars
         data for mongo db document insert"""
-        category = CategoryModel()
-        category.category_type = category_type
-        category.subcategories = subcategories
+        category = CategoryModel(category_type=category_type,
+                                 subcategories=subcategories)
         return vars(category)
 
 
@@ -68,9 +67,13 @@ class GoodModel(BaseObjectIdConfig):
                           price):
         """Creates Good model instance and returns it's vars
         data for mongo db document insert"""
-        good = GoodModel()
-        good.good_title = title
-        good.good_attributes = attributes
-        good.good_brand = brand
-        good.good_price = price
+        good = GoodModel(good_title=title,
+                         good_attributes=attributes,
+                         good_brand=brand,
+                         good_price=price)
         return vars(good)
+
+
+class ParseCategory(BaseModel):
+    category_type: str
+    subcategory: str
