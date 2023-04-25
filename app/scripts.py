@@ -11,11 +11,11 @@ from transliterate import translit
 
 from app.database import CollectionHandler
 from app.schema import CategoryModel, GoodModel
-from app.settings import get_settings
+from app.settings import settings
 
 URL = 'https://lamoda.by'
 session = requests.Session()
-lamoda_db_name = get_settings().lamoda_db_name
+lamoda_db_name = settings.lamoda_db_name
 
 
 class CatalogGood:  # pylint: disable=too-few-public-methods
@@ -74,10 +74,11 @@ class DataCollectingTools:
         return nuxt
 
     @classmethod
-    def goods_links_getter(cls, link: str, page_num: int) -> list[str]:
+    def goods_links_getter(cls, link: str, page_num: int | None = None) -> list[str]:
         """Collects all goods links from passed in page link with set page number
         parameter, returns list of all goods links from the page"""
-        link = link + f"?page={page_num}"
+        if page_num:
+            link = link + f"?page={page_num}"
         parsed_page = cls.soup_maker(link)
         all_page_goods_links = [URL + good['href'] for good in
                                 parsed_page.find_all('a',
@@ -220,11 +221,11 @@ class CategoryDataScraper:
         """Collects actual category map data, gets category link and
         calls suitable data scraper method for requested category"""
         collection = CollectionHandler(lamoda_db_name, "categories")
-        category = collection.find_one_by_key(category_type)
+        category = collection.find_one({"category_type": category_type})
         self.collection_name = self.collection_name_generator(category_type,
                                                               subcategory)
         if category:
-            self.link = category[category_type][subcategory]
+            self.link = category["subcategories"][subcategory]
             category_methods_map: dict = {"Блог": self.blog_data_scraper,
                                           "Бренды": self.brands_data_scraper,
                                           "Новинки": self.new_goods_data_scraper}
@@ -245,7 +246,7 @@ class CategoryDataScraper:
     def collection_name_generator(category_type: str, category_name: str):
         """Generates translit name from given category type and category name
         for mongo db collection"""
-        category_collection = f'{category_type}-{category_name}'
+        category_collection = f'{category_type.lower()}_{category_name.lower()}'
         collection_name = translit(category_collection, "ru", reversed=True)
         return collection_name
 
@@ -292,3 +293,23 @@ class CategoryDataScraper:
         brand links list"""
         for inside_link in self.link:
             self.categories_data_scraper(inside_link)
+
+
+class ThePageParser:  # pylint: disable=too-few-public-methods
+    """Class contains method for goods from passed page link parsing, puts data to
+    last_parsed_page collection"""
+    collection_name = "last_parsed_page"
+    collection = CollectionHandler(lamoda_db_name, collection_name)
+
+    @classmethod
+    def parse_passed_page(cls, link):
+        """Deletes all class collection (last_parsed_page) documents, parses goods from
+        passed page link and puts parsed data to class collection"""
+        cls.collection.delete_many({})
+        goods_links = DataCollectingTools.goods_links_getter(link)
+        if not goods_links:
+            cls.collection.insert_one({"parsed_page_link": link,
+                                       "status": "Nothing to parse here"})
+        else:
+            CatalogGood.goods_runner(goods_links, cls.collection_name)
+            cls.collection.insert_one({"parsed_page_link": link})

@@ -2,14 +2,7 @@
 
 """This module contains pandantic BaseSettings class with it's config"""
 
-from functools import lru_cache
-
 from pydantic import BaseSettings
-
-
-@lru_cache()
-def get_settings():
-    return Settings()
 
 
 class Settings(BaseSettings):
@@ -19,3 +12,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = '.env'
         env_file_encoding = 'utf-8'
+
+
+settings = Settings()

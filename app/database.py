@@ -2,14 +2,20 @@
 
 """This module contains mongo db client and dbs parameters"""
 
-from pymongo import MongoClient
+from typing import Any, Mapping, TypeVar
 
-from app.settings import get_settings
+from pymongo import MongoClient, cursor
+from pymongo.results import (DeleteResult, InsertManyResult, InsertOneResult,
+                             UpdateResult)
+
+from app.settings import settings
+
+_DocumentType = TypeVar("_DocumentType", bound=Mapping[str, Any])
 
 
 class DatabaseGetter:
     """Class that contains database created or gotten by passed in name"""
-    db_client: MongoClient = MongoClient(get_settings().mongo_uri)
+    db_client: MongoClient = MongoClient(settings.mongo_uri)
 
     def __init__(self, db_name: str) -> None:
         """Instanciate a Database Getter class with given database parameter"""
@@ -25,66 +31,59 @@ class CollectionHandler:
         self.db = DatabaseGetter(db_name).db
         self.collection = self.db.get_collection(str(collection_name))
 
-    def get_all_data(self) -> list:
-        """Gets and returns all docs data from class collection"""
-        docs = self.collection.find()
-        docs_data = [doc for doc in docs]
-        return docs_data
+    def find(self, *args, **kwargs) -> cursor.Cursor[_DocumentType]:
+        """Duplicates pymongo Collection find method: takes parameters and
+        returns cursor (db query) for docs, found with given parameters"""
+        docs = self.collection.find(*args, **kwargs)
+        return docs
 
-    def find(self, params: dict) -> list[dict] | None:
-        """Gets and returns all docs data with given parameters from
-        class collection"""
-        docs = self.collection.find(params)
-        docs_data = [doc for doc in docs]
-        return docs_data
-
-    def find_one_by_params(self, params: dict) -> dict | None:
-        """Gets and returns specific doc found by a given parameters"""
-        doc = self.collection.find_one(params)
+    def find_one(self, *args, **kwargs) -> dict | None:
+        """Duplicates pymongo Collection find one method: takes parameters and
+        returns the first doc found with given parameters or None if no
+        docs were found"""
+        doc = self.collection.find_one(*args, **kwargs)
         return doc
 
-    def find_one_by_key(self, key: str) -> dict | None:
-        """Gets and returns specific doc which contains a key with
-        given name"""
-        doc = self.collection.find_one({}, {str(key): 1})
-        if doc:
-            doc_id = doc['_id']
-            doc = self.collection.find_one({"_id": doc_id})
-        return doc
+    def insert_one(self, *args, **kwargs) -> InsertOneResult:
+        """Duplicates pymongo Collection insert one method: takes parameters and
+        doc data and inserts it to class' collection, returns InsertOneResult
+        from pymongo results"""
+        result = self.collection.insert_one(*args, **kwargs)
+        return result
 
-    def find_with_pagination(self, cursor: str | None) \
-            -> dict[str, list | str | None]:
-        if cursor:
-            docs = self.collection.find({}, {"_id": {"$gt": cursor}}).sort("_id", -1)
-        else:
-            docs = self.collection.find({}).sort("_id", -1)
-        docs_data = []
-        for doc in docs.limit(100):
-            docs_data.append(doc)
-            cursor = doc["_id"]
-        return {"data": docs_data, "cursor": cursor}
+    def insert_many(self, *args, **kwargs) -> InsertManyResult:
+        """Duplicates pymongo Collection insert one method: takes parameters and
+        list of docs' data and inserts them to class' collection, returns
+        InsertManyResult from pymongo results"""
+        result = self.collection.insert_many(*args, **kwargs)
+        return result
 
-    def insert_one(self, document: dict):
-        """Adds passed doc to class' collection"""
-        self.collection.insert_one(document)
+    def update_one(self, *args, **kwargs) -> UpdateResult:
+        """Duplicates pymongo Collection update one method: takes parameters and
+        doc data to be updated (changed) and changes doc data (with passed doc data)
+        of first doc found with given parameters, returns UpdateResult
+        from pymongo results"""
+        result = self.collection.update_one(*args, **kwargs)
+        return result
 
-    def insert_many(self, documents: list[dict]):
-        """Adds all passed docs to class' collection"""
-        self.collection.insert_many(documents)
+    def update_many(self, *args, **kwargs) -> UpdateResult:
+        """Duplicates pymongo Collection update many method: takes parameters and
+        doc data to be updated (changed) and changes doc data (with passed doc data)
+        of all docs found with given parameters, returns UpdateResult
+        from pymongo results"""
+        result = self.collection.update_many(*args, **kwargs)
+        return result
 
-    def update_one(self, search_params: dict, change_fields: dict):
-        """Changes found with given parameters doc with passed data"""
-        self.collection.update_one(search_params, change_fields)
+    def delete_many(self, *args, **kwargs) -> DeleteResult:
+        """Duplicates pymongo Collection delete many method: takes parameters
+        and deletes all docs found with given parameters, returns DeleteResult
+        from pymongo results"""
+        result = self.collection.delete_many(*args, **kwargs)
+        return result
 
-    def update_many(self, search_params: dict, change_fields: dict):
-        """Changes all found with given parameters docs with passed data"""
-        self.collection.update_many(search_params, change_fields)
-
-    def delete_many(self, params: dict):
-        """Deletes all docs from class' collection"""
-        self.collection.delete_many(params)
-
-    def delete_one(self, params: dict):
-        """Deletes specific doc from class' collection found with
-        given parameters"""
-        self.collection.delete_one(params)
+    def delete_one(self, *args, **kwargs) -> DeleteResult:
+        """Duplicates pymongo Collection delete one method: takes parameters
+        and deletes the first doc found with given parameters, returns DeleteResult
+        from pymongo results"""
+        result = self.collection.delete_one(*args, **kwargs)
+        return result

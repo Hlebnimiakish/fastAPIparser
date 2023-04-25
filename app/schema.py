@@ -77,3 +77,7 @@ class GoodModel(BaseObjectIdConfig):
 class ParseCategory(BaseModel):
     category_type: str
     subcategory: str
+
+
+class ParsePage(BaseModel):
+    page_to_parse: str
