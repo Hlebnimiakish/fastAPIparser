@@ -1,0 +1,90 @@
+version: "3.8"
+
+services:
+
+  database:
+    image: mongo
+    container_name: mongodb
+    ports:
+      - 27018:27017
+
+  fast_api_app:
+    build:
+      dockerfile: ./Dockerfile
+    container_name: fastapi_app
+    entrypoint: ./app/entrypoint.sh
+    ports:
+      - 8000:8000
+    expose:
+      - "8000"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      database:
+        condition: service_started
+      kafka_starter:
+        condition: service_started
+    healthcheck:
+      test: echo "Fast app started"
+      timeout: 5s
+
+
+  redis:
+    image: redis
+    container_name: redis
+    ports:
+      - 6379:6379
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka
+    container_name: kafka
+    ports:
+      - "9092:29092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: nc -z localhost 9092 || exit -1
+      timeout: 10s
+
+  kafka_starter:
+    image: confluentinc/cp-kafka
+    container_name: kafka_starter
+    entrypoint: [ '/bin/sh', '-c' ]
+    command: |
+      "
+      kafka-topics --bootstrap-server kafka:29092 --list
+      kafka-topics --bootstrap-server kafka:29092 --create --topic lamoda_category_parser --replication-factor 1 --partitions 1
+      kafka-topics --bootstrap-server kafka:29092 --create --topic lamoda_goods_parser --replication-factor 1 --partitions 1
+      kafka-topics --bootstrap-server kafka:29092 --create --topic lamoda_page_parser --replication-factor 1 --partitions 1
+      "
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: [ kafka-topics --bootstrap-server kafka:29092 --list ]
+      timeout: 5s
+
+  kafka_consumer:
+    build:
+      dockerfile: ./Dockerfile
+    container_name: kafka_consumer
+    entrypoint: ./kafka_starter/kafka-entrypoint.sh
+    depends_on:
+      fast_api_app:
+        condition: service_healthy
