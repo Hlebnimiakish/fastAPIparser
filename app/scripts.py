@@ -1,3 +1,5 @@
+# pylint: disable=import-error
+
 """This module contains scripts to parse lamoda goods data"""
 
 import json
@@ -5,12 +7,18 @@ import re
 
 import requests
 from bs4 import BeautifulSoup
+from transliterate import translit
+
+from app.database import CollectionHandler
+from app.schema import CategoryModel, GoodModel
+from app.settings import settings
 
 URL = 'https://lamoda.by'
 session = requests.Session()
+lamoda_db_name = settings.lamoda_db_name
 
 
-class CatalogGood:
+class CatalogGood:  # pylint: disable=too-few-public-methods
     """Instanciate a Catalog Good class representing a good from lamoda catalog
     with it's attributes, price, title and brand set"""
     def __init__(self, nuxt_var: str | None):
@@ -27,10 +35,18 @@ class CatalogGood:
             self.title = json_data['product']['title']
 
     @classmethod
-    def goods_runner(cls, nuxt_var_list: list) -> list:
+    def goods_runner(cls, links: list[str], collection_name: str):
         """Takes list of goods links, search for data for each good
         passed, returns lis of CatalogGood instances"""
-        return [CatalogGood(nuxt_var) for nuxt_var in nuxt_var_list]  # Will be reworked
+        for link in links:
+            nuxt_var = DataCollectingTools.nuxt_finder(link)
+            good = CatalogGood(nuxt_var)
+            good_data = GoodModel.good_data_creator(good.title,
+                                                    good.brand,
+                                                    good.attributes,
+                                                    good.price)
+            collection = CollectionHandler(lamoda_db_name, collection_name)
+            collection.insert_one(good_data)
 
 
 class DataCollectingTools:
@@ -39,7 +55,7 @@ class DataCollectingTools:
     def soup_maker(link: str) -> BeautifulSoup:
         """Takes in a URL (link) and returns parsed BeautifulSoup instance
         of passed in page URL"""
-        page = session.get(link, timeout=30)
+        page = session.get(link, timeout=300)
         parsed_page = BeautifulSoup(page.content, 'lxml')
         return parsed_page
 
@@ -58,10 +74,11 @@ class DataCollectingTools:
         return nuxt
 
     @classmethod
-    def goods_links_getter(cls, link: str, page_num: int) -> list[str]:
+    def goods_links_getter(cls, link: str, page_num: int | None = None) -> list[str]:
         """Collects all goods links from passed in page link with set page number
         parameter, returns list of all goods links from the page"""
-        link = link + f"?page={page_num}"
+        if page_num:
+            link = link + f"?page={page_num}"
         parsed_page = cls.soup_maker(link)
         all_page_goods_links = [URL + good['href'] for good in
                                 parsed_page.find_all('a',
@@ -94,11 +111,10 @@ class DataCollectingTools:
         return subcategory_links
 
     @classmethod
-    def page_runner(cls, link: str) -> list[str]:
+    def page_runner(cls, link: str, collection: str):
         """Takes in category link and runs through all category pages collecting
-        goods links, returns collected goods links"""
+        goods links and passing them to CatalogGood goods runner function"""
         page_num = 1
-        goods_links: list = []
         remembered_good = None
         for _ in range(167):
             gotten_goods = \
@@ -108,16 +124,15 @@ class DataCollectingTools:
             if gotten_goods and remembered_good and \
                     gotten_goods[-1] == remembered_good:
                 break
-            CatalogGood.goods_runner([cls.nuxt_finder(link)
-                                      for link in gotten_goods])  # Will be reworked
+            CatalogGood.goods_runner(list(gotten_goods),
+                                     collection)
             page_num += 1
             remembered_good = gotten_goods[-1]
-        return goods_links  # Will be reworked
 
 
 class HomeCategoriesCollector:
-    """Instanciate a HomeCategoriesCollector class with set category map attribute, containing
-    actual lamoda home categories and their links"""
+    """Instanciate a HomeCategoriesCollector class with set category map attribute,
+    containing actual lamoda home categories and their links"""
     def __init__(self):
         """Creates a current actual category map and assign it to category_map
         class attribute"""
@@ -171,7 +186,7 @@ class HomeCategoriesCollector:
         category_map = {}
         for key, value in type_links.items():
             sub_categories = {}
-            page = session.get(value, timeout=30)
+            page = session.get(value, timeout=300)
             parsed_page = BeautifulSoup(page.content, 'lxml')
             search_class = "d-header-topmenu-category__link"
             sub_cats_list = parsed_page.body.find_all("a", {"class": search_class})
@@ -190,30 +205,50 @@ class HomeCategoriesCollector:
             category_map[key] = sub_categories
         return category_map
 
+    def put_categories_to_db(self):
+        """Adds collected categories to "categories" lamoda db collection"""
+        collection = CollectionHandler(lamoda_db_name, "categories")
+        for category_type, subcategories in self.category_map.items():
+            category = CategoryModel.category_data_creator(category_type,
+                                                           subcategories)
+            collection.insert_one(category)
+
 
 class CategoryDataScraper:
     """Instanciate a CategoryDataScraper class with scraping category link set and class
     link attribute and calls suitable data scraping method"""
-    def __init__(self, category_type: str, category_name: str):
+    def __init__(self, category_type: str, subcategory: str):
         """Collects actual category map data, gets category link and
         calls suitable data scraper method for requested category"""
-        category_map = HomeCategoriesCollector().category_map
-        self.link = category_map[category_type][category_name]
-        category_methods_map: dict = {"Блог": self.blog_data_scraper,
-                                      "Бренды": self.brands_data_scraper,
-                                      "Новинки": self.new_goods_data_scraper}
-        if category_name in category_methods_map:
-            category_methods_map[category_name]()
-        else:
-            self.standard_data_scraper()
+        collection = CollectionHandler(lamoda_db_name, "categories")
+        category = collection.find_one({"category_type": category_type})
+        self.collection_name = self.collection_name_generator(category_type,
+                                                              subcategory)
+        if category:
+            self.link = category["subcategories"][subcategory]
+            category_methods_map: dict = {"Блог": self.blog_data_scraper,
+                                          "Бренды": self.brands_data_scraper,
+                                          "Новинки": self.new_goods_data_scraper}
+            if subcategory in category_methods_map:
+                category_methods_map[subcategory]()
+            else:
+                self.standard_data_scraper()
 
     @staticmethod
-    def links_runner(links: list):
+    def links_runner(links: list, collection: str):
         """Runs through links passed in the links list and calls page_runner
         method from DataCollectingTools class to get data from all available
         pages"""
         for link in links:
-            DataCollectingTools.page_runner(link)
+            DataCollectingTools.page_runner(link, collection)
+
+    @staticmethod
+    def collection_name_generator(category_type: str, category_name: str):
+        """Generates translit name from given category type and category name
+        for mongo db collection"""
+        category_collection = f'{category_type.lower()}_{category_name.lower()}'
+        collection_name = translit(category_collection, "ru", reversed=True)
+        return collection_name
 
     @staticmethod
     def categories_collector(link: str) -> list:
@@ -230,18 +265,18 @@ class CategoryDataScraper:
         for category in categories:
             category_link = URL + category['href']
             links = DataCollectingTools.category_subcategories_getter(category_link)
-            self.links_runner(links)
+            self.links_runner(links, self.collection_name)
 
     def standard_data_scraper(self):
         """Collects all subcategory link lists (via category_subcategories_getter
         from DataCollectingTools class method) and calls a link_runner method for
         each subcategory links list"""
         links = DataCollectingTools.category_subcategories_getter(self.link)
-        self.links_runner(links)
+        self.links_runner(links, self.collection_name)
 
     def blog_data_scraper(self):
         """Prints out a statement"""
-        print('Nothing to parse here')  # Will be reworked
+        return {"Blog": "Nothing to parse here"}
 
     def categories_data_scraper(self, link: str):
         """Gets categories by running categories_collector method on a given link and
@@ -258,3 +293,23 @@ class CategoryDataScraper:
         brand links list"""
         for inside_link in self.link:
             self.categories_data_scraper(inside_link)
+
+
+class ThePageParser:  # pylint: disable=too-few-public-methods
+    """Class contains method for goods from passed page link parsing, puts data to
+    last_parsed_page collection"""
+    collection_name = "last_parsed_page"
+    collection = CollectionHandler(lamoda_db_name, collection_name)
+
+    @classmethod
+    def parse_passed_page(cls, link):
+        """Deletes all class collection (last_parsed_page) documents, parses goods from
+        passed page link and puts parsed data to class collection"""
+        cls.collection.delete_many({})
+        goods_links = DataCollectingTools.goods_links_getter(link)
+        if not goods_links:
+            cls.collection.insert_one({"parsed_page_link": link,
+                                       "status": "Nothing to parse here"})
+        else:
+            CatalogGood.goods_runner(goods_links, cls.collection_name)
+            cls.collection.insert_one({"parsed_page_link": link})
