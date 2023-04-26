@@ -8,6 +8,7 @@ from pydantic import BaseSettings
 class Settings(BaseSettings):
     mongo_uri: str = "mongodb://mongodb:27017"
     lamoda_db_name: str = "lamodadb"
+    twitch_db_name: str = "twitchdb"
 
     class Config:
         env_file = '.env'
