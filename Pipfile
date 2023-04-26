@@ -9,12 +9,16 @@ uvicorn = {extras = ["standard"], version = "*"}
 beautifulsoup4 = "*"
 requests = "*"
 lxml = "*"
+pymongo = "*"
+kafka-python = "*"
+transliterate = "*"
 
 [dev-packages]
 mypy = "*"
 pylint = "*"
 isort = "*"
 flake8 = "*"
+pre-commit = "*"
 
 [requires]
 python_version = "3.10"
