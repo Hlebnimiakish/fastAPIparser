@@ -2,6 +2,8 @@
 
 """This module contains twitch data scraping tools"""
 
+from enum import Enum
+
 import requests
 
 from app.database import CollectionHandler
@@ -19,7 +21,7 @@ class Authorization:
         settings"""
         self.client_id = settings.client_id
         grant_type = "client_credentials"
-        auth_url = APIInterfaceURLs().post_authenticate
+        auth_url = APIURLs.POST_AUTH.value
         self.url = auth_url + "?" \
                             + f"client_id={self.client_id}" \
                             + f"&client_secret={settings.secret_key}" \
@@ -34,36 +36,34 @@ class Authorization:
         return headers
 
 
-class APIInterfaceURLs:
+class APIURLs(Enum):
     """Class contains twitch API methods"""
-    def __init__(self):
-        self.post_authenticate = "https://id.twitch.tv/oauth2/token"
-        self.get_top_games = 'https://api.twitch.tv/helix/games/top'
-        self.get_channels = 'https://api.twitch.tv/helix/channels'
-        self.get_streams = 'https://api.twitch.tv/helix/streams'
+    POST_AUTH = "https://id.twitch.tv/oauth2/token"
+    GET_GAMES = 'https://api.twitch.tv/helix/games/top'
+    GET_CHANNELS = 'https://api.twitch.tv/helix/channels'
+    GET_STREAMS = 'https://api.twitch.tv/helix/streams'
 
 
-class TwitchInterfaceCollections:
+class TwitchCollections(Enum):
     """Class contains mongodb twitch CollectionHandler class instances"""
-    def __init__(self):
-        self.games_collection = CollectionHandler(twitch_db_name, "twitch_games")
-        self.streams_collection = CollectionHandler(twitch_db_name, "twitch_streams")
-        self.channels_collection = CollectionHandler(twitch_db_name, "twitch_channels")
+    GAMES = CollectionHandler(twitch_db_name, "twitch_games")
+    STREAMS = CollectionHandler(twitch_db_name, "twitch_streams")
+    CHANNELS = CollectionHandler(twitch_db_name, "twitch_channels")
 
 
 class TwitchParserTools:
     """Class contains tools for twitch data scraping with twitch API"""
     headers = Authorization().get_headers()
-    urls = APIInterfaceURLs()
-    collections = TwitchInterfaceCollections()
+    urls = APIURLs
+    collections = TwitchCollections
 
     @classmethod
     def collect_top_games(cls, cursor: str | None = None):
         """Gets and puts in database current top twitch games (recursively calls itself
         if there are more games to get)"""
-        url = cls.urls.get_top_games
+        url = cls.urls.GET_GAMES.value
         if cursor:
-            url = cls.urls.get_top_games + f'?after={cursor}'
+            url = url + f'?after={cursor}'
         response = session.get(url, headers=cls.headers, timeout=300)
         response_data = response.json()
         games = response_data['data']
@@ -71,7 +71,7 @@ class TwitchParserTools:
             for game in games:
                 game = TwitchGame.twitch_game_data_creator(game['id'],
                                                            game['name'])
-                cls.collections.games_collection.insert_one(game)
+                cls.collections.GAMES.value.insert_one(game)
         if response_data['pagination']:
             cursor = response.json()['pagination']['cursor']
             cls.collect_top_games(cursor)
@@ -80,20 +80,20 @@ class TwitchParserTools:
     def collect_channels(cls):
         """Gets and puts to the database all channels of stored in
         database broadcasters (streamers)"""
-        for stream in cls.collections.streams_collection.find({}, ['user_id']):
+        for stream in cls.collections.STREAMS.value.find({}, ['user_id']):
             broadcaster = stream['user_id']
-            channel_url = cls.urls.get_channels + f'?broadcaster_id={broadcaster}'
+            channel_url = cls.urls.GET_CHANNELS.value + f'?broadcaster_id={broadcaster}'
             response = session.get(channel_url, headers=cls.headers, timeout=300)
             channels_data = response.json()['data']
             for channel_data in channels_data:
                 channel = TwitchChannel.twitch_channel_data_creation(channel_data)
-                cls.collections.channels_collection.insert_one(channel)
+                cls.collections.CHANNELS.value.insert_one(channel)
 
     @classmethod
     def collect_streams(cls):
         """Gets and passes to stream_collector function stored
         in database game instances"""
-        for game in cls.collections.games_collection.find({}, ['game_id']):
+        for game in cls.collections.GAMES.value.find({}, ['game_id']):
             game_id = game["game_id"]
             cls.stream_collector(game_id)
 
@@ -101,9 +101,9 @@ class TwitchParserTools:
     def stream_collector(cls, game_id: str, cursor: str | None = None):
         """Gets and puts in database all streams for passed in game (recursively calls itself
         if there are more streams to get)"""
-        url = cls.urls.get_streams + f"?game_id={game_id}"
+        url = cls.urls.GET_STREAMS.value + f"?game_id={game_id}"
         if cursor:
-            url = cls.urls.get_streams + f"?game_id={game_id}&after={cursor}"
+            url = url + f"&after={cursor}"
         response = session.get(url,
                                headers=cls.headers,
                                timeout=300)
@@ -112,7 +112,7 @@ class TwitchParserTools:
         if streams:
             for stream in streams:
                 stream_data = TwitchStream.twitch_stream_data_creator(stream)
-                cls.collections.streams_collection.insert_one(stream_data)
+                cls.collections.STREAMS.value.insert_one(stream_data)
         if response_data['pagination']:
             cursor = response.json()['pagination']['cursor']
             cls.stream_collector(game_id, cursor)
@@ -130,9 +130,9 @@ class TwitchParser:
         """Calls needed twitch data collection methods in the right order,
         cleaning collections data before getting new"""
         created_parser = TwitchParser()
-        TwitchParserTools.collections.games_collection.delete_many({})
+        TwitchParserTools.collections.GAMES.value.delete_many({})
         created_parser.collect_top_games()
-        TwitchParserTools.collections.streams_collection.delete_many({})
+        TwitchParserTools.collections.STREAMS.value.delete_many({})
         created_parser.collect_streams()
-        TwitchParserTools.collections.channels_collection.delete_many({})
+        TwitchParserTools.collections.CHANNELS.value.delete_many({})
         created_parser.collect_channels()
