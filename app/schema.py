@@ -35,7 +35,7 @@ class BaseObjectIdConfig(BaseModel):
 
 
 class CategoryModel(BaseObjectIdConfig):
-    id: ObjectId = Field(default_factory=PyObjectId, alias='_id')
+    id: str = Field(default_factory=PyObjectId, alias='_id')
     category_type: str
     subcategories: dict[str, Union[str, list]]
     creation_time: datetime.datetime = Field(default=datetime.datetime.now())
@@ -52,7 +52,7 @@ class CategoryModel(BaseObjectIdConfig):
 
 
 class GoodModel(BaseObjectIdConfig):
-    id: ObjectId = Field(default_factory=PyObjectId, alias='_id')
+    id: str = Field(default_factory=PyObjectId, alias='_id')
     good_title: str
     good_brand: str
     good_attributes: list[dict]
@@ -81,3 +81,65 @@ class ParseCategory(BaseModel):
 
 class ParsePage(BaseModel):
     page_to_parse: str
+
+
+class TwitchGame(BaseObjectIdConfig):
+    id: str = Field(default_factory=PyObjectId, alias='_id')
+    game_id: int
+    game_name: str
+    creation_time: datetime.datetime = Field(default=datetime.datetime.now())
+
+    @classmethod
+    def twitch_game_data_creator(cls,
+                                 game_id,
+                                 game_name):
+        game = TwitchGame(game_id=game_id,
+                          game_name=game_name)
+        return vars(game)
+
+
+class TwitchStream(BaseObjectIdConfig):
+    id: str = Field(default_factory=PyObjectId, alias='_id')
+    twitch_id: str
+    user_id: str
+    user_login: str
+    user_name: str
+    game_id: str | None
+    game_name: str | None
+    type: str | None
+    title: str | None
+    viewer_count: int | None
+    started_at: datetime.datetime | None
+    language: str | None
+    thumbnail_url: str | None
+    tag_ids: list[int] | list
+    tags: list[str] | list | None
+    is_mature: bool | None
+    creation_time: datetime.datetime = Field(default=datetime.datetime.now())
+
+    @classmethod
+    def twitch_stream_data_creator(cls,
+                                   stream_params: dict):
+        stream_params['twitch_id'] = stream_params.pop('id')
+        stream = TwitchStream(**stream_params)
+        return vars(stream)
+
+
+class TwitchChannel(BaseObjectIdConfig):
+    id: str = Field(default_factory=PyObjectId, alias='_id')
+    broadcaster_id: str
+    broadcaster_login: str
+    broadcaster_name: str
+    broadcaster_language: str | None
+    game_id: str | None
+    game_name: str | None
+    title: str | None
+    delay: int | None
+    tags: list[str] | list | None
+    creation_time: datetime.datetime = Field(default=datetime.datetime.now())
+
+    @classmethod
+    def twitch_channel_data_creation(cls,
+                                     channel_params: dict):
+        channel = TwitchChannel(**channel_params)
+        return vars(channel)
