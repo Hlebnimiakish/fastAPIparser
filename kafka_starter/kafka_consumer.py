@@ -12,6 +12,7 @@ from app.database import CollectionHandler
 from app.lamoda_scripts import (CategoryDataScraper, HomeCategoriesCollector,
                                 ThePageParser)
 from app.settings import settings
+from app.twitch_scripts import TwitchParser
 
 lamoda_db_name = settings.lamoda_db_name
 
@@ -29,6 +30,11 @@ lamoda_goods_consumer = KafkaConsumer('lamoda_goods_parser',
                                       group_id='group1',
                                       bootstrap_servers=['kafka:29092'],
                                       max_poll_interval_ms=900000000)
+
+twitch_data_consumer = KafkaConsumer('twitch_data_parser',
+                                     group_id='group1',
+                                     bootstrap_servers=['kafka:29092'],
+                                     max_poll_interval_ms=900000000)
 
 
 def categories_consumer_runner():
@@ -61,13 +67,23 @@ def page_consumer_runner():
         time.sleep(1)
 
 
+def twitch_consumer_runner():
+    """This function runs loop for twitch_data_consumer messages processing"""
+    for _ in twitch_data_consumer:
+        TwitchParser.parse_twitch_data()
+        time.sleep(1)
+
+
 if __name__ == '__main__':
 
-    cats_consumer_thread = threading.Thread(target=categories_consumer_runner)
-    cats_consumer_thread.start()
+    lamoda_cats_consumer_thread = threading.Thread(target=categories_consumer_runner)
+    lamoda_cats_consumer_thread.start()
 
-    goods_consumer_thread = threading.Thread(target=goods_consumer_runner)
-    goods_consumer_thread.start()
+    lamoda_goods_consumer_thread = threading.Thread(target=goods_consumer_runner)
+    lamoda_goods_consumer_thread.start()
 
-    page_parser_thread = threading.Thread(target=page_consumer_runner)
-    page_parser_thread.start()
+    lamoda_page_parser_thread = threading.Thread(target=page_consumer_runner)
+    lamoda_page_parser_thread.start()
+
+    twitch_data_parser_thread = threading.Thread(target=twitch_consumer_runner)
+    twitch_data_parser_thread.start()
