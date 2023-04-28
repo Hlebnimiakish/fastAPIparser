@@ -22,6 +22,12 @@ class DatabaseGetter:
         self.db = self.db_client.get_database(str(db_name))
 
 
+class DatabaseCollectionsList(DatabaseGetter):
+    """On call returns list of all collections of class instance database"""
+    def __call__(self) -> list:
+        return self.db.list_collection_names()
+
+
 class CollectionHandler:
     """Class containing methods for mongo db collection operations handling;
     P.S. 'doc' same as 'document'"""
