@@ -15,7 +15,7 @@ from app.settings import settings
 
 URL = 'https://lamoda.by'
 session = requests.Session()
-lamoda_db_name = settings.lamoda_db_name
+LAMODA_DB_NAME = settings.lamoda_db_name
 
 
 class CatalogGood:  # pylint: disable=too-few-public-methods
@@ -45,7 +45,7 @@ class CatalogGood:  # pylint: disable=too-few-public-methods
                                                     good.brand,
                                                     good.attributes,
                                                     good.price)
-            collection = CollectionHandler(lamoda_db_name, collection_name)
+            collection = CollectionHandler(LAMODA_DB_NAME, collection_name)
             collection.insert_one(good_data)
 
 
@@ -111,12 +111,13 @@ class DataCollectingTools:
         return subcategory_links
 
     @classmethod
-    def page_runner(cls, link: str, collection: str):
+    def page_runner(cls, link: str, collection: str,
+                    pages_to_parse_limiter: int = 3):
         """Takes in category link and runs through all category pages collecting
         goods links and passing them to CatalogGood goods runner function"""
         page_num = 1
         remembered_good = None
-        for _ in range(167):
+        for _ in range(pages_to_parse_limiter):
             gotten_goods = \
                 cls.goods_links_getter(link, page_num)
             if not gotten_goods:
@@ -207,7 +208,7 @@ class HomeCategoriesCollector:
 
     def put_categories_to_db(self):
         """Adds collected categories to "categories" lamoda db collection"""
-        collection = CollectionHandler(lamoda_db_name, "categories")
+        collection = CollectionHandler(LAMODA_DB_NAME, "categories")
         for category_type, subcategories in self.category_map.items():
             category = CategoryModel.category_data_creator(category_type,
                                                            subcategories)
@@ -217,13 +218,16 @@ class HomeCategoriesCollector:
 class CategoryDataScraper:
     """Instanciate a CategoryDataScraper class with scraping category link set and class
     link attribute and calls suitable data scraping method"""
-    def __init__(self, category_type: str, subcategory: str):
+    def __init__(self, category_type: str,
+                 subcategory: str,
+                 pages_to_parse_limiter: int):
         """Collects actual category map data, gets category link and
         calls suitable data scraper method for requested category"""
-        collection = CollectionHandler(lamoda_db_name, "categories")
+        collection = CollectionHandler(LAMODA_DB_NAME, "categories")
         category = collection.find_one({"category_type": category_type})
         self.collection_name = self.collection_name_generator(category_type,
                                                               subcategory)
+        self.pages_to_parse = pages_to_parse_limiter
         if category:
             self.link = category["subcategories"][subcategory]
             category_methods_map: dict = {"Блог": self.blog_data_scraper,
@@ -235,12 +239,12 @@ class CategoryDataScraper:
                 self.standard_data_scraper()
 
     @staticmethod
-    def links_runner(links: list, collection: str):
+    def links_runner(links: list, collection: str, pages_to_parse: int):
         """Runs through links passed in the links list and calls page_runner
         method from DataCollectingTools class to get data from all available
         pages"""
         for link in links:
-            DataCollectingTools.page_runner(link, collection)
+            DataCollectingTools.page_runner(link, collection, pages_to_parse)
 
     @staticmethod
     def collection_name_generator(category_type: str, category_name: str):
@@ -265,14 +269,14 @@ class CategoryDataScraper:
         for category in categories:
             category_link = URL + category['href']
             links = DataCollectingTools.category_subcategories_getter(category_link)
-            self.links_runner(links, self.collection_name)
+            self.links_runner(links, self.collection_name, self.pages_to_parse)
 
     def standard_data_scraper(self):
         """Collects all subcategory link lists (via category_subcategories_getter
         from DataCollectingTools class method) and calls a link_runner method for
         each subcategory links list"""
         links = DataCollectingTools.category_subcategories_getter(self.link)
-        self.links_runner(links, self.collection_name)
+        self.links_runner(links, self.collection_name, self.pages_to_parse)
 
     def blog_data_scraper(self):
         """Prints out a statement"""
@@ -299,7 +303,7 @@ class ThePageParser:  # pylint: disable=too-few-public-methods
     """Class contains method for goods from passed page link parsing, puts data to
     last_parsed_page collection"""
     collection_name = "last_parsed_page"
-    collection = CollectionHandler(lamoda_db_name, collection_name)
+    collection = CollectionHandler(LAMODA_DB_NAME, collection_name)
 
     @classmethod
     def parse_passed_page(cls, link):

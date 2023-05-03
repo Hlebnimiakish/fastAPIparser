@@ -12,6 +12,8 @@ lxml = "*"
 pymongo = "*"
 kafka-python = "*"
 transliterate = "*"
+redis = "*"
+pytest = "*"
 
 [dev-packages]
 mypy = "*"

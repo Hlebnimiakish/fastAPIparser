@@ -14,7 +14,7 @@ from app.lamoda_scripts import (CategoryDataScraper, HomeCategoriesCollector,
 from app.settings import settings
 from app.twitch_scripts import TwitchParser
 
-lamoda_db_name = settings.lamoda_db_name
+lamoda_db_name = settings.LAMODA_DB_NAME
 
 lamoda_categories_consumer = KafkaConsumer('lamoda_category_parser',
                                            group_id='group1',
@@ -55,7 +55,8 @@ def goods_consumer_runner():
                                                           message_data["subcategory"])
         collection = CollectionHandler(lamoda_db_name, collection_name)
         collection.delete_many({})
-        CategoryDataScraper(message_data["category_type"], message_data["subcategory"])
+        CategoryDataScraper(message_data["category_type"], message_data["subcategory"],
+                            message_data["pages_to_parse_limiter"])
         time.sleep(1)
 
 
