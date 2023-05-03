@@ -4,13 +4,23 @@
 
 from typing import Any, Mapping, TypeVar
 
+from fastapi import BackgroundTasks, Request
 from pymongo import MongoClient, cursor
 from pymongo.results import (DeleteResult, InsertManyResult, InsertOneResult,
                              UpdateResult)
 
+from app.redis_cache import CacheFactory
 from app.settings import settings
 
 _DocumentType = TypeVar("_DocumentType", bound=Mapping[str, Any])
+
+
+class DatabaseNameGetter:
+    def __init__(self, db_name: str):
+        self.db_name = db_name
+
+    def __call__(self):
+        return self.db_name
 
 
 class DatabaseGetter:
@@ -23,9 +33,11 @@ class DatabaseGetter:
 
 
 class DatabaseCollectionsList(DatabaseGetter):
-    """On call returns list of all collections of class instance database"""
-    def __call__(self) -> list:
-        return self.db.list_collection_names()
+    """On call returns list of all collections of class instance database
+    (from database or cache)"""
+    def __call__(self, request: Request, background_tasks: BackgroundTasks):
+        cache = CacheFactory(db_data_getter=self.db.list_collection_names, expiration=150)
+        return cache.cache_checker(request, background_tasks)
 
 
 class CollectionHandler:

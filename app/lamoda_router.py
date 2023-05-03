@@ -5,23 +5,26 @@
 import json
 from typing import Annotated, Union
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
-from app.database import CollectionHandler, DatabaseCollectionsList
-from app.dependencies import CollectionDocsViewer
+from app.database import (CollectionHandler, DatabaseCollectionsList,
+                          DatabaseNameGetter)
+from app.dependencies import CategoriesMapViewer, CollectionDocsViewer
+from app.exceptions import unpredicted_exception_raising
 from app.schema import GoodModel, ParseCategory, ParsePage
 from app.settings import settings
-from kafka_starter.kafka_producer import producer
+from kafka_starter.kafka_producer import task_sender_with_check
 
-lamoda_db_name = settings.lamoda_db_name
+lamoda_db_name = DatabaseNameGetter(settings.LAMODA_DB_NAME)
 
-lamoda_db_collections = DatabaseCollectionsList(lamoda_db_name)
+lamoda_db_collections = DatabaseCollectionsList(lamoda_db_name())
 
 lamoda_router = APIRouter(prefix='/lamoda',
                           tags=['lamoda'])
 
-docs_viewer = CollectionDocsViewer(db_name=lamoda_db_name,
-                                   collections=lamoda_db_collections())
+docs_viewer = CollectionDocsViewer(db_name=lamoda_db_name())
+
+cached_categories = CategoriesMapViewer(db_name=lamoda_db_name())
 
 
 @lamoda_router.post("/category_renewal",
@@ -29,32 +32,27 @@ docs_viewer = CollectionDocsViewer(db_name=lamoda_db_name,
                     summary="Update database with current actual category map",
                     response_description="Task status")
 async def renew_category_map():
-    producer.send("lamoda_category_parser", b"Category map renewal task")
-    producer.flush()
-    return {"Task send": "Category map renewal task send"}
+    return unpredicted_exception_raising(
+        task_sender_with_check("lamoda_category_parser", b"Category map renewal task")
+    )
 
 
 @lamoda_router.get("/get_category_map",
                    response_model=dict[str, list],
                    summary="Returns current actual categories and subcategories",
                    response_description="Current actual categories and subcategories")
-async def get_category_map():
-    collection = CollectionHandler(lamoda_db_name, "categories")
-    categories_data = [category for category in collection.find({})]
-    categories_map = {}
-    for category in categories_data:
-        categories_map[category['category_type']] = \
-            [key for key in category['subcategories'].keys()]
-    return categories_map
+async def get_category_map(categories_map:
+                           Annotated[dict, Depends(cached_categories)]):
+    return unpredicted_exception_raising(categories_map)
 
 
 @lamoda_router.get("/available_collections",
                    response_model=list[str],
                    summary="Returns all available database collections list",
                    response_description="Collections list")
-async def get_lamoda_collections_list(collections:
-                                      Annotated[list, Depends(lamoda_db_collections)]):
-    return collections
+async def get_collections_list(collections:
+                               Annotated[list, Depends(lamoda_db_collections)]):
+    return unpredicted_exception_raising(collections)
 
 
 @lamoda_router.put("/parse_category",
@@ -63,17 +61,17 @@ async def get_lamoda_collections_list(collections:
                            "sends parsing task to kafka",
                    response_description="Task status or error")
 async def parse_category(category_params: ParseCategory):
-    collection = CollectionHandler(lamoda_db_name, "categories")
+    collection = CollectionHandler(lamoda_db_name(), "categories")
     document = collection.find_one({"category_type":
                                     category_params.category_type})
     if not document:
-        return {"Category Error": "Category not found 404"}
+        raise HTTPException(status_code=404, detail="Category not found 404")
     if not document["subcategories"][category_params.subcategory]:
-        return {"Subcategory Error": "Subcategory not found 404"}
+        raise HTTPException(status_code=404, detail="Subcategory not found 404")
     message = json.dumps(category_params.dict()).encode('utf-8')
-    producer.send("lamoda_goods_parser", message)
-    producer.flush()
-    return {"Task send": "Category parsing task send"}
+    return unpredicted_exception_raising(
+        task_sender_with_check("lamoda_goods_parser", message)
+    )
 
 
 @lamoda_router.get("/view_category_goods",
@@ -81,7 +79,7 @@ async def parse_category(category_params: ParseCategory):
                    summary="Returns list of category goods, paginated with passed parameters",
                    response_description="Category goods list")
 async def view_category_goods(docs: Annotated[list, Depends(docs_viewer)]):
-    return docs
+    return unpredicted_exception_raising(docs)
 
 
 @lamoda_router.put("/parse_goods_from_page",
@@ -91,6 +89,6 @@ async def view_category_goods(docs: Annotated[list, Depends(docs_viewer)]):
                    response_description="Task status or error")
 async def parse_passed_page(page_link: ParsePage):
     message = json.dumps(page_link.dict()).encode('utf-8')
-    producer.send("lamoda_page_parser", message)
-    producer.flush()
-    return {"Task send": "Page parsing task send"}
+    return unpredicted_exception_raising(
+        task_sender_with_check("lamoda_page_parser", message)
+    )

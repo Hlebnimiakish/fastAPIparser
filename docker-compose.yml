@@ -24,10 +24,11 @@ services:
         condition: service_started
       kafka_starter:
         condition: service_started
+      redis:
+        condition: service_started
     healthcheck:
       test: echo "Fast app started"
       timeout: 5s
-
 
   redis:
     image: redis

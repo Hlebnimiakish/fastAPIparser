@@ -6,21 +6,21 @@ from typing import Annotated, Union
 
 from fastapi import APIRouter, Depends
 
-from app.database import DatabaseCollectionsList
+from app.database import DatabaseCollectionsList, DatabaseNameGetter
 from app.dependencies import CollectionDocsViewer
+from app.exceptions import unpredicted_exception_raising
 from app.schema import TwitchChannel, TwitchGame, TwitchStream
 from app.settings import settings
-from kafka_starter.kafka_producer import producer
+from kafka_starter.kafka_producer import task_sender_with_check
 
-twitch_db_name = settings.twitch_db_name
+twitch_db_name = DatabaseNameGetter(settings.TWITCH_DB_NAME)
 
-twitch_db_collections = DatabaseCollectionsList(twitch_db_name)
+twitch_db_collections = DatabaseCollectionsList(twitch_db_name())
 
 twitch_router = APIRouter(prefix='/twitch',
                           tags=['twitch'])
 
-docs_viewer = CollectionDocsViewer(db_name=twitch_db_name,
-                                   collections=twitch_db_collections())
+docs_viewer = CollectionDocsViewer(db_name=twitch_db_name())
 
 
 @twitch_router.post("/parse_all_data",
@@ -29,9 +29,9 @@ docs_viewer = CollectionDocsViewer(db_name=twitch_db_name,
                             "top games, their streams and streamer channels",
                     response_description="Task status")
 async def parse_twitch_data():
-    producer.send("twitch_data_parser", b'Twitch data renewal task')
-    producer.flush()
-    return {"Task send": "Twitch data renewal task send"}
+    return unpredicted_exception_raising(
+        task_sender_with_check("twitch_data_parser", b'Twitch data renewal task')
+    )
 
 
 @twitch_router.get("/available_collections",
@@ -40,7 +40,7 @@ async def parse_twitch_data():
                    response_description="Collections list")
 async def get_twitch_collections_list(collections:
                                       Annotated[list, Depends(twitch_db_collections)]):
-    return collections
+    return unpredicted_exception_raising(collections)
 
 
 @twitch_router.get("/view_collection_data",
@@ -51,4 +51,4 @@ async def get_twitch_collections_list(collections:
                    summary="Returns list of collection documents paginated with passed parameters",
                    response_description="Collections documents list")
 async def view_collection_data(docs: Annotated[list, Depends(docs_viewer)]):
-    return docs
+    return unpredicted_exception_raising(docs)

@@ -11,7 +11,7 @@ from app.schema import TwitchChannel, TwitchGame, TwitchStream
 from app.settings import settings
 
 session = requests.Session()
-twitch_db_name = settings.twitch_db_name
+TWITCH_DB_NAME = settings.twitch_db_name
 
 
 class Authorization:
@@ -46,9 +46,9 @@ class APIURLs(Enum):
 
 class TwitchCollections(Enum):
     """Class contains mongodb twitch CollectionHandler class instances"""
-    GAMES = CollectionHandler(twitch_db_name, "twitch_games")
-    STREAMS = CollectionHandler(twitch_db_name, "twitch_streams")
-    CHANNELS = CollectionHandler(twitch_db_name, "twitch_channels")
+    GAMES = CollectionHandler(TWITCH_DB_NAME, "twitch_games")
+    STREAMS = CollectionHandler(TWITCH_DB_NAME, "twitch_streams")
+    CHANNELS = CollectionHandler(TWITCH_DB_NAME, "twitch_channels")
 
 
 class TwitchParserTools:
@@ -58,7 +58,9 @@ class TwitchParserTools:
     collections = TwitchCollections
 
     @classmethod
-    def collect_top_games(cls, cursor: str | None = None):
+    def collect_top_games(cls, cursor: str | None = None,
+                          parse_pages_limiter: int = 1,
+                          current_page: int = 1):
         """Gets and puts in database current top twitch games (recursively calls itself
         if there are more games to get)"""
         url = cls.urls.GET_GAMES.value
@@ -72,9 +74,11 @@ class TwitchParserTools:
                 game = TwitchGame.twitch_game_data_creator(game['id'],
                                                            game['name'])
                 cls.collections.GAMES.value.insert_one(game)
+        current_page += 1
         if response_data['pagination']:
             cursor = response.json()['pagination']['cursor']
-            cls.collect_top_games(cursor)
+            if current_page <= parse_pages_limiter:
+                cls.collect_top_games(cursor, parse_pages_limiter, current_page)
 
     @classmethod
     def collect_channels(cls):
@@ -90,18 +94,19 @@ class TwitchParserTools:
                 cls.collections.CHANNELS.value.insert_one(channel)
 
     @classmethod
-    def collect_streams(cls):
+    def collect_streams(cls, parse_pages_limiter: int = 2):
         """Gets and passes to stream_collector function stored
         in database game instances"""
         for game in cls.collections.GAMES.value.find({}, ['game_id']):
             game_id = game["game_id"]
-            cls.stream_collector(game_id)
+            cls.stream_collector(game_id, parse_pages_limiter=parse_pages_limiter)
 
     @classmethod
-    def stream_collector(cls, game_id: str, cursor: str | None = None):
+    def stream_collector(cls, game_id: str, cursor: str | None = None,
+                         parse_pages_limiter: int = 2, current_page: int = 1):
         """Gets and puts in database all streams for passed in game (recursively calls itself
         if there are more streams to get)"""
-        url = cls.urls.GET_STREAMS.value + f"?game_id={game_id}"
+        url = cls.urls.GET_STREAMS.value + f"?game_id={game_id}&first=5"
         if cursor:
             url = url + f"&after={cursor}"
         response = session.get(url,
@@ -115,7 +120,10 @@ class TwitchParserTools:
                 cls.collections.STREAMS.value.insert_one(stream_data)
         if response_data['pagination']:
             cursor = response.json()['pagination']['cursor']
-            cls.stream_collector(game_id, cursor)
+            current_page += 1
+            if current_page <= parse_pages_limiter:
+                cls.stream_collector(game_id, cursor,
+                                     parse_pages_limiter, current_page)
 
 
 class TwitchParser:
