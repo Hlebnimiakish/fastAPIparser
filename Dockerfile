@@ -15,6 +15,8 @@ COPY app /fastAPIparser/app/
 
 COPY kafka_starter /fastAPIparser/kafka_starter/
 
+COPY .env /fastAPIparser/
+
 RUN chmod +x ./kafka_starter/kafka-entrypoint.sh
 RUN chmod +x ./app/entrypoint.sh
 

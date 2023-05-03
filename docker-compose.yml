@@ -72,6 +72,7 @@ services:
       kafka-topics --bootstrap-server kafka:29092 --create --topic lamoda_category_parser --replication-factor 1 --partitions 1
       kafka-topics --bootstrap-server kafka:29092 --create --topic lamoda_goods_parser --replication-factor 1 --partitions 1
       kafka-topics --bootstrap-server kafka:29092 --create --topic lamoda_page_parser --replication-factor 1 --partitions 1
+      kafka-topics --bootstrap-server kafka:29092 --create --topic twitch_data_parser --replication-factor 1 --partitions 1
       "
     depends_on:
       kafka:
